@@ -6,7 +6,7 @@ int main() {
     printf("Add(3, 4) = %d\n", sum);
 
     char* greeting = Greet("devlights");
-    printf("Greet(\"Hideaki\") = %s\n", greeting);
+    printf("Greet(\"devlights\") = %s\n", greeting);
     FreeString(greeting);
 
     return 0;
