@@ -5,7 +5,7 @@ int main() {
     int sum = Add(3, 4);
     printf("Add(3, 4) = %d\n", sum);
 
-    char* greeting = Greet("Hideaki");
+    char* greeting = Greet("devlights");
     printf("Greet(\"Hideaki\") = %s\n", greeting);
     FreeString(greeting);
 
