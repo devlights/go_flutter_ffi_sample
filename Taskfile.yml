@@ -1,0 +1,138 @@
+# Taskfile.yml
+#
+# 概要:
+#   Go(cgo c-shared) × Dart(dart:ffi) サンプルプロジェクトの
+#   ビルド・実行タスクを定義します。
+#
+# 前提環境:
+#   このTaskfileは Linux 環境専用です（Windows/macOS向けの
+#   クロスコンパイル定義はあえて含めていません）。
+#   以下のコマンドが PATH 上で解決できることを前提とします。
+#     - go      (Go 1.26 系。動作検証は go1.26.5 / linux-amd64 で実施)
+#     - gcc     (cgoが内部的に利用するCコンパイラ。Ubuntuでは`gcc`パッケージ)
+#     - dart    (Dart SDK。動作検証は 3.12.2 で実施)
+#
+# 検証環境:
+#   Task本体は go-task/task v3.51.1 (https://github.com/go-task/task) で
+#   動作確認を行っています。
+#
+# 参考情報 (このTaskfileの記述にあたり参照したドキュメント):
+#   - Taskfile スキーマ定義:      https://taskfile.dev/docs/reference/schema
+#   - Taskfile バージョニング:    https://taskfile.dev/docs/taskfile-versions
+#   - Task インストール手順:      https://taskfile.dev/docs/installation
+#   - go build のbuildmode解説:   https://pkg.go.dev/cmd/go#hdr-Build_modes
+version: '3'
+
+# ---------------------------------------------------------------------------
+# vars: プロジェクト全体で使い回すパス・ファイル名を定義します。
+#   ディレクトリ構成は以下を前提としています。
+#     go/                Goソース (mylib.go, go.mod)
+#     dart_lib/           Dart側バインディングと実行コード
+#     build/linux/        ビルド成果物の出力先
+# ---------------------------------------------------------------------------
+vars:
+  GO_SRC_DIR: go
+  GO_SRC_FILE: mylib.go
+  DART_DIR: dart_lib
+  BUILD_DIR: build/linux
+  LIB_NAME: libmylib.so
+
+tasks:
+
+  # -------------------------------------------------------------------------
+  # default: `task` とだけ実行した場合のエントリーポイントです。
+  #   利用可能なタスク一覧を表示するだけに留め、副作用のある処理
+  #   (ビルドや実行) は明示的にタスク名を指定した場合のみ動くようにします。
+  # -------------------------------------------------------------------------
+  default:
+    desc: "利用可能なタスクの一覧を表示します"
+    silent: true
+    cmds:
+      - task --list-all
+
+  # -------------------------------------------------------------------------
+  # deps: Dart側の依存パッケージ (package:ffi など) を取得します。
+  #   pubspec.yaml に変更がない限り再実行はスキップされます
+  #   (sources/generates によるキャッシュ判定)。
+  # -------------------------------------------------------------------------
+  deps:
+    desc: "Dartの依存パッケージを取得します (dart pub get)"
+    dir: "{{.DART_DIR}}"
+    sources:
+      - pubspec.yaml
+    generates:
+      - .dart_tool/package_config.json
+    cmds:
+      - dart pub get
+
+  # -------------------------------------------------------------------------
+  # build: Goソースをcgoでビルドし、C ABI互換の共有ライブラリ(.so)を
+  #   生成します。
+  #   - CGO_ENABLED=1 は cgo (c-shared buildmode) を使う上で必須です。
+  #   - sources/generates を指定することで、Goソースに変更がない場合は
+  #     再ビルドをスキップします (タイムスタンプ比較)。
+  # -------------------------------------------------------------------------
+  build:
+    desc: "GoコードをC共有ライブラリ(.so)としてビルドします"
+    dir: "{{.GO_SRC_DIR}}"
+    env:
+      CGO_ENABLED: '1'
+    sources:
+      - "*.go"
+      - go.mod
+    generates:
+      - "../{{.BUILD_DIR}}/{{.LIB_NAME}}"
+      - "../{{.BUILD_DIR}}/libmylib.h"
+    cmds:
+      - mkdir -p "../{{.BUILD_DIR}}"
+      - go build -buildmode=c-shared -o "../{{.BUILD_DIR}}/{{.LIB_NAME}}" "{{.GO_SRC_FILE}}"
+
+  # -------------------------------------------------------------------------
+  # test:c: ビルドした共有ライブラリを、Cの簡易テストプログラムから
+  #   直接呼び出して疎通確認を行います。
+  #   Dartを介さずCレベルでABIが正しく機能しているかを検証したい場合に
+  #   利用します (問題の切り分けに有用です)。
+  # -------------------------------------------------------------------------
+  test:c:
+    desc: "C言語のテストプログラムから共有ライブラリを呼び出して疎通確認します"
+    deps: [build]
+    dir: "{{.BUILD_DIR}}"
+    cmds:
+      - gcc test_call.c -L. -lmylib -o test_call
+      # 実行時に同ディレクトリの.soを見つけられるよう LD_LIBRARY_PATH を設定
+      - LD_LIBRARY_PATH=. ./test_call
+
+  # -------------------------------------------------------------------------
+  # run: Dart側から dart:ffi 経由で共有ライブラリをロードし、
+  #   実際に関数呼び出しを行うサンプルを実行します。
+  #   build と deps の両方に依存しているため、初回実行時に必要な
+  #   準備が自動的に整います。
+  # -------------------------------------------------------------------------
+  run:
+    desc: "Dart(dart:ffi)から共有ライブラリを呼び出すサンプルを実行します"
+    deps: [build, deps]
+    dir: "{{.DART_DIR}}"
+    cmds:
+      - dart run main.dart
+
+  # -------------------------------------------------------------------------
+  # all: 依存取得 → ビルド → Dart実行 までを一括で行います。
+  # -------------------------------------------------------------------------
+  all:
+    desc: "deps -> build -> run を一括実行します"
+    cmds:
+      - task: deps
+      - task: build
+      - task: run
+
+  # -------------------------------------------------------------------------
+  # clean: ビルド成果物と再取得可能な生成物を削除します。
+  #   pubspec.lock はバージョン固定情報のため意図的に残しています。
+  # -------------------------------------------------------------------------
+  clean:
+    desc: "ビルド成果物を削除します"
+    cmds:
+      - rm -f "{{.BUILD_DIR}}/{{.LIB_NAME}}"
+      - rm -f "{{.BUILD_DIR}}/libmylib.h"
+      - rm -f "{{.BUILD_DIR}}/test_call"
+      - rm -rf "{{.DART_DIR}}/.dart_tool"

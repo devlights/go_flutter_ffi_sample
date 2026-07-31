@@ -1,0 +1,8 @@
+name: mylib_bindings_sample
+description: Go(cgo c-shared)をdart:ffiで呼び出すサンプル
+publish_to: 'none'
+environment:
+  sdk: ^3.6.0
+
+dependencies:
+  ffi: ^2.1.3
