@@ -15,6 +15,6 @@ void main() {
   final sum = mylib.add(3, 4);
   print('Add(3, 4) = $sum');
 
-  final greeting = mylib.greet('Hideaki');
-  print('Greet("Hideaki") = $greeting');
+  final greeting = mylib.greet('devlights');
+  print('Greet("devlights") = $greeting');
 }
